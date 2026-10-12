@@ -4,7 +4,7 @@ local TRACKED = {
 }
 local KEYS = { bleed = true, poison = true }
 
--- Creature-type guesses. Edit to match what is true on your server.
+-- Creature-type base guess
 local IMMUNE_TYPES = {
     bleed  = { Mechanical = true, Elemental = true, Totem = true, Undead = true },
     poison = { Mechanical = true, Elemental = true, Totem = true },
@@ -209,8 +209,7 @@ end
 -- Applies icon size and which icons are shown
 local function ApplyLayout()
     local o = Opt()
-    local size = o.size
-    -- Each icon keeps a fixed slot, so hiding one never moves the others
+    local size = o.size    
     for i, info in ipairs(TRACKED) do
         local b = info.button
         b:SetSize(size, size)
@@ -256,9 +255,9 @@ local function SetUnlocked(value)
     Refresh()
 end
 
----------------------------------------------------------------------
+
 -- Live sharing (party / raid / guild)
----------------------------------------------------------------------
+
 local function Broadcast(id, key, immune, name)
     if not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
     local msg = ("%d;%s;%d;%s"):format(id, key, immune and 1 or 0, (name or ""):sub(1, 100))
@@ -285,9 +284,9 @@ local function ReceiveShared(text, sender)
     Refresh()
 end
 
----------------------------------------------------------------------
+
 -- Saving what you mark
----------------------------------------------------------------------
+
 function Learn(guid, mobName, key, immune, silent)
     local id = NpcIdFromGUID(guid)
     if not id then return end
@@ -304,16 +303,16 @@ function Learn(guid, mobName, key, immune, silent)
     if guid == UnitGUID("target") then Refresh() end
 end
 
----------------------------------------------------------------------
+
 -- Auto-learn bleed immunity from your Rupture/Garrote casts (reads UNIT_COMBAT results)
----------------------------------------------------------------------
+
 local SPELL_KEYS = {}
 -- Rupture and Garrote (all ranks) both test bleed immunity
 for _, id in ipairs({ 1943, 8639, 8640, 11273, 11274, 11275, 703, 8631, 8632, 8633, 11289, 11290 }) do
     SPELL_KEYS[id] = "bleed"
 end
 
-local WINDOW = 0.7 -- seconds after a cast in which an IMMUNE result counts
+local WINDOW = 0.5 -- seconds after a cast in which an IMMUNE result counts
 local latest       -- most recent tracked cast
 
 -- Called when you successfully cast a spell
@@ -417,7 +416,7 @@ local function ShowIO(title, text, buttonLabel, onAccept)
         local eb = CreateFrame("EditBox", nil, sf)
         eb:SetMultiLine(true)
         eb:SetFontObject(ChatFontNormal)
-        eb:SetWidth(400)
+        eb:SetWidth(380)
         eb:SetAutoFocus(false)
         eb:SetScript("OnEscapePressed", function() io:Hide() end)
         sf:SetScrollChild(eb)
