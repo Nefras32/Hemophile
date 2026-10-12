@@ -401,7 +401,14 @@ local function OnTrackedCast(spellID)
 end
 
 -- Called for UNIT_COMBAT events on your target
-local function OnTargetCombat(action)
+local function OnTargetCombat(action, school)
+    if action == "WOUND" and school == 8 then
+        local _, class = UnitClass("player")
+        if class == "ROGUE" and IsHostileNpc("target") then
+            Learn(UnitGUID("target"), UnitName("target"), "poison", false, true, true)
+        end
+    end
+
     local p = latest
     if not p or p.immune then return end
     if GetTime() - p.time > WINDOW then return end
@@ -787,7 +794,7 @@ container:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
             print(("Hemophile debug: action=%s flag=%s amount=%s school=%s"):format(
                 tostring(a2), tostring(a3), tostring(a4), tostring(a5)))
         end
-        pcall(OnTargetCombat, a2)
+        pcall(OnTargetCombat, a2, a5)
     elseif event == "ADDON_LOADED" then
         if a1 == "Hemophile" then
             HemophileDB = HemophileDB or {}
