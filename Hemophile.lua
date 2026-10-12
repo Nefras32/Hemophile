@@ -45,9 +45,34 @@ end
 -- Helpers
 ---------------------------------------------------------------------
 local function NpcIdFromGUID(guid)
-    if not guid then return nil end
+    if not guid or (issecretvalue and issecretvalue(guid)) then return nil end
     local kind, _, _, _, _, id = strsplit("-", guid)
     if kind == "Creature" or kind == "Vehicle" then return tonumber(id) end
+end
+
+local function SafeUnitName(unit)
+    local name = UnitName(unit)
+    if issecretvalue and issecretvalue(name) then return nil end
+    if type(name) ~= "string" or name == "" then return nil end
+    return name
+end
+
+local function CreatureTypeForUnit(unit)
+    local ctype = UnitCreatureType(unit)
+    if issecretvalue and issecretvalue(ctype) then ctype = nil end
+    return ctype
+end
+
+local function DataKeyFromUnit(unit)
+    return NpcIdFromGUID(UnitGUID(unit))
+end
+
+local function UnitMatchesMob(unit, guid, dataKey)
+    local unitGUID = UnitGUID(unit)
+    if not (issecretvalue and (issecretvalue(unitGUID) or issecretvalue(guid))) then
+        if unitGUID and guid then return unitGUID == guid end
+    end
+    return dataKey ~= nil and DataKeyFromUnit(unit) == dataKey
 end
 
 -- Attackable NPCs only: no players, no pets, no friendly NPCs
@@ -55,14 +80,13 @@ local function IsHostileNpc(unit)
     return UnitExists(unit)
         and UnitCanAttack("player", unit)
         and not UnitPlayerControlled(unit)
-        and NpcIdFromGUID(UnitGUID(unit)) ~= nil
 end
 
 local function Pretty(key)
     return key == "poison" and "Deadly Poison" or (key:sub(1, 1):upper() .. key:sub(2))
 end
 
--- Text format: id;name;bleed;poison   (1 immune, 0 not immune, blank unknown)
+-- Text format: id;name;bleed;poison (1 immune, 0 not immune, blank unknown)
 local function ParseLines(text, target)
     local n = 0
     for line in text:gmatch("[^\r\n]+") do
@@ -90,34 +114,37 @@ ParseLines(HemophileStaticText or "", HemophileStatic)
 
 -- Returns immune (bool), source (string)
 local function CheckImmunity(key, unit)
-    local id = NpcIdFromGUID(UnitGUID(unit))
-    local ctype = UnitCreatureType(unit)
+    local dataKey = DataKeyFromUnit(unit)
+    local ctype = CreatureTypeForUnit(unit)
     local baseline = ctype and IMMUNE_TYPES[key] and IMMUNE_TYPES[key][ctype]
         and ("; baseline: immune for " .. ctype .. " type") or ""
-    if id then
-        local entry = HemophileAuto and HemophileAuto[id]
+    if dataKey then
+        local entry = HemophileAuto and HemophileAuto[dataKey]
         if entry and entry[key] ~= nil then
             return entry[key], (entry[key] and "Immune" or "Not immune") .. " (auto-detected)" .. baseline, "auto"
         end
-        entry = HemophileDB and HemophileDB[id]
+        entry = HemophileDB and HemophileDB[dataKey]
         if entry and entry[key] ~= nil then
             return entry[key], (entry[key] and "Immune" or "Not immune") .. " (marked by you)" .. baseline
         end
-        entry = HemophileShared and HemophileShared[id]
+        entry = HemophileShared and HemophileShared[dataKey]
         if entry and entry[key] ~= nil then
             return entry[key], (entry[key] and "Immune" or "Not immune") .. " (shared/imported)" .. baseline
         end
-        entry = HemophileStatic[id]
+        entry = HemophileStatic[dataKey]
         if entry and entry[key] ~= nil then
             return entry[key], (entry[key] and "Immune" or "Not immune") .. " (addon database)" .. baseline
         end
-        entry = OVERRIDES[id]
+        entry = OVERRIDES[dataKey]
         if entry and entry[key] ~= nil then
             return entry[key], (entry[key] and "Immune" or "Not immune") .. " (override)" .. baseline
         end
     end
-    if ctype and IMMUNE_TYPES[key] and IMMUNE_TYPES[key][ctype] then
-        return true, "Immune (" .. ctype .. " type guess, unconfirmed)"
+    if ctype and IMMUNE_TYPES[key] then
+        if IMMUNE_TYPES[key][ctype] then
+            return true, "Immune (" .. ctype .. " type guess, unconfirmed)"
+        end
+        return false, "Not immune (" .. ctype .. " type guess, unconfirmed)"
     end
     return false, "Not known to be immune"
 end
@@ -213,11 +240,16 @@ for i, info in ipairs(TRACKED) do
         if unlocked or button ~= "LeftButton" then return end
         if not IsHostileNpc("target") then return end
         local guid = UnitGUID("target")
+        local dataKey = DataKeyFromUnit("target")
+        if not dataKey then
+            print("Hemophile: cannot save this mob; the game is hiding its NPC ID.")
+            return
+        end
         local current, _, origin = CheckImmunity(self.info.key, "target")
         if self.info.key == "poison" and not current and origin == "auto" then
-            ClearAutoLearnedPoison(NpcIdFromGUID(guid), guid, UnitName("target"))
+            ClearAutoLearnedPoison(dataKey, guid, SafeUnitName("target"))
         else
-            Learn(guid, UnitName("target"), self.info.key, not current)
+            Learn(guid, SafeUnitName("target"), self.info.key, not current)
         end
         if GameTooltip:IsOwned(self) then ShowTooltip(self) end
     end)
@@ -249,13 +281,24 @@ function Refresh()
         container:Hide()
         return
     end
+    local hasNpcId = DataKeyFromUnit("target") ~= nil
     container:Show()
     for _, info in ipairs(TRACKED) do
         local b = info.button
         local immune, source, origin = CheckImmunity(info.key, "target")
+        if not hasNpcId then
+            source = "Target NPC ID is hidden; immunity data is unavailable"
+            immune = false
+            origin = nil
+        end
         b.status = source
         b.origin = origin
-        if immune then
+        if not hasNpcId then
+            b.icon:SetDesaturated(true)
+            b.icon:SetVertexColor(0.65, 0.65, 0.65)
+            b.icon:SetAlpha(0.65)
+            b.cross:Hide()
+        elseif immune then
             b.icon:SetDesaturated(true)
             b.icon:SetVertexColor(1, 0.3, 0.3)
             b.icon:SetAlpha(0.8)
@@ -308,41 +351,41 @@ end
 -- Saving what you mark
 
 function Learn(guid, mobName, key, immune, silent, automatic)
-    local id = NpcIdFromGUID(guid)
-    if not id then return end
+    local dataKey = NpcIdFromGUID(guid)
+    if not dataKey then return end
     if not automatic then
-        local autoEntry = HemophileAuto and HemophileAuto[id]
+        local autoEntry = HemophileAuto and HemophileAuto[dataKey]
         if autoEntry then
             autoEntry[key] = nil
             if autoEntry.bleed == nil and autoEntry.poison == nil then
-                HemophileAuto[id] = nil
+                HemophileAuto[dataKey] = nil
             end
         end
     end
     local data = automatic and HemophileAuto or HemophileDB
-    data[id] = data[id] or {}
-    local entry = data[id]
+    data[dataKey] = data[dataKey] or {}
+    local entry = data[dataKey]
     entry.name = mobName or entry.name
     if entry[key] == immune then Refresh() return end
     entry[key] = immune
-    Broadcast(id, key, immune, entry.name)
+    Broadcast(dataKey, key, immune, entry.name)
     if not silent then
         print(("|cff00ff00Hemophile:|r %s: %s %s (saved)"):format(
-            mobName or ("NPC " .. id), immune and "immune to" or "can be hit by", Pretty(key)))
+            mobName or tostring(dataKey), immune and "immune to" or "can be hit by", Pretty(key)))
     end
-    if guid == UnitGUID("target") then Refresh() end
+    if UnitMatchesMob("target", guid, dataKey) then Refresh() end
 end
 
-function ClearAutoLearnedPoison(id, guid, mobName)
-    local entry = id and HemophileAuto and HemophileAuto[id]
+function ClearAutoLearnedPoison(dataKey, guid, mobName)
+    local entry = dataKey and HemophileAuto and HemophileAuto[dataKey]
     if not entry or entry.poison ~= false then return end
 
     entry.poison = nil
-    if entry.bleed == nil then HemophileAuto[id] = nil end
-    if latest and latest.guid == guid and latest.key == "poison" then latest = nil end
+    if entry.bleed == nil then HemophileAuto[dataKey] = nil end
+    if latest and latest.dataKey == dataKey and latest.key == "poison" then latest = nil end
 
     print(("|cff00ff00Hemophile:|r cleared the auto-detected poisonability for %s; apply poison again to retest."):format(
-        mobName or ("NPC " .. id)))
+        mobName or tostring(dataKey)))
     Refresh()
 end
 
@@ -388,13 +431,15 @@ local function OnTrackedCast(spellID)
     if not key then return end
     if not IsHostileNpc("target") then return end
     local guid = UnitGUID("target")
+    local dataKey = DataKeyFromUnit("target")
+    if not dataKey then return end
 
-    local p = { key = key, guid = guid, name = UnitName("target"), time = GetTime() }
+    local p = { key = key, guid = guid, dataKey = dataKey, name = SafeUnitName("target"), time = GetTime() }
     latest = p
 
     C_Timer.After(WINDOW, function()
         if latest ~= p or p.immune then return end -- superseded or already learned as immune
-        if UnitGUID("target") ~= guid then return end
+        if not UnitMatchesMob("target", guid, dataKey) then return end
         -- No IMMUNE result arrived, so the cast was not immune.
         Learn(guid, p.name, key, false, true, true)
     end)
@@ -406,7 +451,7 @@ local function OnTargetCombat(action)
     local p = latest
     if not p or p.immune then return end
     if GetTime() - p.time > WINDOW then return end
-    if UnitGUID("target") ~= p.guid then return end
+    if not UnitMatchesMob("target", p.guid, p.dataKey) then return end
     if action == "IMMUNE" then
         p.immune = true
         -- Already shown as immune (type guess, database...)? Save it quietly, no message.
@@ -837,18 +882,22 @@ SlashCmdList["HEMOPHILE"] = function(msg)
         return
     end
 
-    local guid = UnitGUID("target")
-    local id = NpcIdFromGUID(guid)
-    if not id then
+    if not IsHostileNpc("target") then
         print("Hemophile: /hemophile options | export | import | immune | hittable | forget (the last three need a mob targeted)")
+        return
+    end
+    local guid = UnitGUID("target")
+    local dataKey = DataKeyFromUnit("target")
+    if not dataKey then
+        print("Hemophile: cannot save this mob; the game is hiding both its GUID and name.")
         return
     end
 
     if cmd == "forget" then
-        HemophileDB[id] = nil
-        HemophileShared[id] = nil
-        HemophileAuto[id] = nil
-        print("Hemophile: cleared saved, shared, and auto-detected data for " .. (UnitName("target") or id))
+        HemophileDB[dataKey] = nil
+        HemophileShared[dataKey] = nil
+        HemophileAuto[dataKey] = nil
+        print("Hemophile: cleared saved, shared, and auto-detected data for " .. (SafeUnitName("target") or tostring(dataKey)))
         Refresh()
         return
     end
@@ -861,7 +910,7 @@ SlashCmdList["HEMOPHILE"] = function(msg)
     local value = (cmd == "immune")
     for _, info in ipairs(TRACKED) do
         if which == "" or which == "all" or which == info.key then
-            Learn(guid, UnitName("target"), info.key, value)
+            Learn(guid, SafeUnitName("target"), info.key, value)
         end
     end
 end
