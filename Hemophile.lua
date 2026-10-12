@@ -1,6 +1,6 @@
 local TRACKED = {
-    { key = "bleed",  name = "Bleed indicator",  texture = "Interface\\Icons\\Ability_Rogue_Rupture" },
-    { key = "poison", name = "Poison indicator", texture = "Interface\\Icons\\Ability_Poisons" },
+    { key = "bleed",  name = "Bleed indicator",  texture = "Interface\\Icons\\Spell_DeathKnight_BloodBoil" },
+    { key = "poison", name = "Poison indicator", texture = "Interface\\Icons\\Ability_Creature_Poison_06" },
 }
 local KEYS = { bleed = true, poison = true }
 
@@ -185,9 +185,7 @@ for i, info in ipairs(TRACKED) do
     local iconTexture = info.texture
     if info.key == "poison" then
         local _, class = UnitClass("player")
-        if class == "HUNTER" then
-            iconTexture = "Interface\\Icons\\Ability_Hunter_Quickshot"
-        elseif class == "ROGUE" then
+        if class == "ROGUE" then
             iconTexture = "Interface\\Icons\\Ability_Rogue_DualWeild"
         end
     end
