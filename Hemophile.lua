@@ -142,9 +142,9 @@ local function CheckImmunity(key, unit)
     end
     if ctype and IMMUNE_TYPES[key] then
         if IMMUNE_TYPES[key][ctype] then
-            return true, "Immune (" .. ctype .. " type guess, unconfirmed)"
+            return true, "Immune (" .. ctype .. " type guess, unconfirmed)", nil, true
         end
-        return false, "Not immune (" .. ctype .. " type guess, unconfirmed)"
+        return false, "Not immune (" .. ctype .. " type guess, unconfirmed)", nil, true
     end
     return false, "Not known to be immune"
 end
@@ -282,18 +282,24 @@ function Refresh()
         return
     end
     local hasNpcId = DataKeyFromUnit("target") ~= nil
+    local hasType = CreatureTypeForUnit("target") ~= nil
+    local known = hasNpcId or hasType
     container:Show()
     for _, info in ipairs(TRACKED) do
         local b = info.button
-        local immune, source, origin = CheckImmunity(info.key, "target")
-        if not hasNpcId then
-            source = "Target NPC ID is hidden; immunity data is unavailable"
+        local immune, source, origin, guess = CheckImmunity(info.key, "target")
+        if not known then
+            source = "Target NPC ID and creature type are hidden; immunity data is unavailable"
             immune = false
+            origin = nil
+            guess = false
+        elseif not hasNpcId then
+            source = source .. " [NPC ID hidden: cannot save or look up this mob]"
             origin = nil
         end
         b.status = source
         b.origin = origin
-        if not hasNpcId then
+        if not known then
             b.icon:SetDesaturated(true)
             b.icon:SetVertexColor(0.65, 0.65, 0.65)
             b.icon:SetAlpha(0.65)
@@ -301,12 +307,12 @@ function Refresh()
         elseif immune then
             b.icon:SetDesaturated(true)
             b.icon:SetVertexColor(1, 0.3, 0.3)
-            b.icon:SetAlpha(0.8)
+            b.icon:SetAlpha(guess and 0.65 or 0.8)
             b.cross:Show()
         else
             b.icon:SetDesaturated(false)
             b.icon:SetVertexColor(1, 1, 1)
-            b.icon:SetAlpha(1)
+            b.icon:SetAlpha(guess and 0.75 or 1)
             b.cross:Hide()
         end
     end
