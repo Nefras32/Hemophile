@@ -311,6 +311,15 @@ end
 function Learn(guid, mobName, key, immune, silent, automatic)
     local id = NpcIdFromGUID(guid)
     if not id then return end
+    if not automatic then
+        local autoEntry = HemophileAuto and HemophileAuto[id]
+        if autoEntry then
+            autoEntry[key] = nil
+            if autoEntry.bleed == nil and autoEntry.poison == nil then
+                HemophileAuto[id] = nil
+            end
+        end
+    end
     local data = automatic and HemophileAuto or HemophileDB
     data[id] = data[id] or {}
     local entry = data[id]
@@ -356,6 +365,7 @@ TrackSpells("bleed", {
 
 -- Hunter stings count as evidence for the shared poison flag.
 TrackSpells("poison", {
+    2818, 2819, 11353, 11354, 25349, 26968, 27187, 57970, -- Deadly Poison ranks
     1978, 13549, 13550, 13551, 13552, 13553, 13554, 13555, 25295, -- Serpent Sting
     3034, 14279, 14280,                                          -- Viper Sting
     3043, 14275, 14276, 14277,                                   -- Scorpid Sting
