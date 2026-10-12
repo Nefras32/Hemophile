@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Hemophile
+## Notes: Shows bleed/poison immunity - Live data sharing between addon users to check rupture/garrote/poison immunity
+## Author: Milktrader
+## Version: 0.2
+## SavedVariables: HemophileDB, HemophileShared
+Hemophile.lua
