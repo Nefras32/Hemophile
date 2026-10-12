@@ -93,25 +93,25 @@ ParseLines(HemophileStaticText or "", HemophileStatic)
 local function CheckImmunity(key, unit)
     local id = NpcIdFromGUID(UnitGUID(unit))
     if id then
-        local e = HemophileAuto and HemophileAuto[id]
-        if e and e[key] ~= nil then
-            return e[key], (e[key] and "Immune" or "Not immune") .. " (auto-detected)"
+        local entry = HemophileAuto and HemophileAuto[id]
+        if entry and entry[key] ~= nil then
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (auto-detected)"
         end
-        local e = HemophileDB and HemophileDB[id]
-        if e and e[key] ~= nil then
-            return e[key], (e[key] and "Immune" or "Not immune") .. " (marked by you)"
+        entry = HemophileDB and HemophileDB[id]
+        if entry and entry[key] ~= nil then
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (marked by you)"
         end
-        e = HemophileShared and HemophileShared[id]
-        if e and e[key] ~= nil then
-            return e[key], (e[key] and "Immune" or "Not immune") .. " (shared/imported)"
+        entry = HemophileShared and HemophileShared[id]
+        if entry and entry[key] ~= nil then
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (shared/imported)"
         end
-        e = HemophileStatic[id]
-        if e and e[key] ~= nil then
-            return e[key], (e[key] and "Immune" or "Not immune") .. " (addon database)"
+        entry = HemophileStatic[id]
+        if entry and entry[key] ~= nil then
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (addon database)"
         end
-        e = OVERRIDES[id]
-        if e and e[key] ~= nil then
-            return e[key], (e[key] and "Immune" or "Not immune") .. " (override)"
+        entry = OVERRIDES[id]
+        if entry and entry[key] ~= nil then
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (override)"
         end
     end
     local ctype = UnitCreatureType(unit)
@@ -354,7 +354,7 @@ local function OnTrackedCast(spellID)
     latest = p
 
     C_Timer.After(WINDOW, function()
-        if p.immune then return end                -- already learned as immune
+        if latest ~= p or p.immune then return end -- superseded or already learned as immune
         if UnitGUID("target") ~= guid then return end
         -- No IMMUNE result arrived, so the cast was not immune.
         Learn(guid, p.name, key, false, true, true)
