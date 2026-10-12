@@ -4,4 +4,5 @@
 ## Version: 0.2
 ## SavedVariables: HemophileDB, HemophileShared, HemophileAuto
 ## SavedVariablesPerCharacter: HemophileCharacterDB
+## X-Curse-Project-ID:1740705
 Hemophile.lua
