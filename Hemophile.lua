@@ -93,6 +93,10 @@ ParseLines(HemophileStaticText or "", HemophileStatic)
 local function CheckImmunity(key, unit)
     local id = NpcIdFromGUID(UnitGUID(unit))
     if id then
+        local e = HemophileAuto and HemophileAuto[id]
+        if e and e[key] ~= nil then
+            return e[key], (e[key] and "Immune" or "Not immune") .. " (auto-detected)"
+        end
         local e = HemophileDB and HemophileDB[id]
         if e and e[key] ~= nil then
             return e[key], (e[key] and "Immune" or "Not immune") .. " (marked by you)"
@@ -287,11 +291,12 @@ end
 
 -- Saving what you mark
 
-function Learn(guid, mobName, key, immune, silent)
+function Learn(guid, mobName, key, immune, silent, automatic)
     local id = NpcIdFromGUID(guid)
     if not id then return end
-    HemophileDB[id] = HemophileDB[id] or {}
-    local entry = HemophileDB[id]
+    local data = automatic and HemophileAuto or HemophileDB
+    data[id] = data[id] or {}
+    local entry = data[id]
     entry.name = mobName or entry.name
     if entry[key] == immune then Refresh() return end
     entry[key] = immune
@@ -304,13 +309,35 @@ function Learn(guid, mobName, key, immune, silent)
 end
 
 
--- Auto-learn bleed immunity from your Rupture/Garrote casts (reads UNIT_COMBAT results)
+-- Auto-learn immunity from casts that test bleed or poison effects.
 
 local SPELL_KEYS = {}
--- Rupture and Garrote (all ranks) both test bleed immunity
-for _, id in ipairs({ 1943, 8639, 8640, 11273, 11274, 11275, 703, 8631, 8632, 8633, 11289, 11290 }) do
-    SPELL_KEYS[id] = "bleed"
+local function TrackSpells(key, ids)
+    for _, id in ipairs(ids) do
+        SPELL_KEYS[id] = key
+    end
 end
+
+-- Rogue bleeds
+TrackSpells("bleed", {
+    1943, 8639, 8640, 11273, 11274, 11275, -- Rupture
+    703, 8631, 8632, 8633, 11289, 11290,  -- Garrote
+})
+
+-- Hunter stings count as evidence for the shared poison flag.
+TrackSpells("poison", {
+    1978, 13549, 13550, 13551, 13552, 13553, 13554, 13555, 25295, -- Serpent Sting
+    3034, 14279, 14280,                                          -- Viper Sting
+    3043, 14275, 14276, 14277,                                   -- Scorpid Sting
+})
+
+-- Other class bleeds
+TrackSpells("bleed", {
+    772, 6546, 6547, 6548, 11572, 11573, 11574, -- Warrior Rend
+    1079, 9492, 9493, 9752, 9894, 9896,         -- Druid Rip
+    1822, 1823, 1824, 9904,                      -- Druid Rake
+    33745, 48567, 48568,                         -- Druid Lacerate
+})
 
 local WINDOW = 0.5 -- seconds after a cast in which an IMMUNE result counts
 local latest       -- most recent tracked cast
@@ -330,8 +357,7 @@ local function OnTrackedCast(spellID)
         if p.immune then return end                -- already learned as immune
         if UnitGUID("target") ~= guid then return end
         -- No IMMUNE result arrived, so the cast was not immune.
-        local wasImmune = CheckImmunity(key, "target")
-        Learn(guid, p.name, key, false, not wasImmune)
+        Learn(guid, p.name, key, false, true, true)
     end)
 end
 
@@ -344,51 +370,10 @@ local function OnTargetCombat(action)
     if action == "IMMUNE" then
         p.immune = true
         -- Already shown as immune (type guess, database...)? Save it quietly, no message.
-        local wasImmune = CheckImmunity(p.key, "target")
-        Learn(p.guid, p.name, p.key, true, wasImmune)
+        Learn(p.guid, p.name, p.key, true, true, true)
     end
 end
-
----------------------------------------------------------------------
--- Auto-learn poison immunity (any rogue poison, so every Deadly Poison rank)
--- Poison procs are not casts, so they are read from UNIT_COMBAT on your target:
---   IMMUNE + nature school      -> the poison was resisted by immunity
---   WOUND  + nature school      -> something nature/poison ticked on it (solo only)
--- Both require a poison on one of your weapons and you being in combat.
----------------------------------------------------------------------
-local NATURE = 8
 local debugCombat = false
-
-local function HasWeaponPoison()
-    local r = { GetWeaponEnchantInfo() }
-    return r[1] == true or r[4] == true or r[5] == true
-end
-
-local function OnPoisonCombat(action, school)
-    if school ~= NATURE then return end
-    if action ~= "IMMUNE" and action ~= "WOUND" then return end
-    if not Opt().autoLearn then return end
-    if not IsHostileNpc("target") then return end
-    if not UnitAffectingCombat("player") or not HasWeaponPoison() then return end
-    local guid = UnitGUID("target")
-    local id = NpcIdFromGUID(guid)
-    if not id then return end
-
-    -- Never argue with the shipped or shared database; only fill gaps / correct your own data
-    local sh, st = HemophileShared[id], HemophileStatic[id]
-    if (sh and sh.poison ~= nil) or (st and st.poison ~= nil) then return end
-
-    local mine = HemophileDB[id] and HemophileDB[id].poison
-    if action == "IMMUNE" then
-        if mine ~= true then
-            local wasImmune = CheckImmunity("poison", "target")
-            Learn(guid, UnitName("target"), "poison", true, wasImmune)
-        end
-    elseif not IsInGroup() and mine == nil then
-        -- Solo: nothing but you and the poison should be dealing nature damage
-        Learn(guid, UnitName("target"), "poison", false, true)
-    end
-end
 
 ---------------------------------------------------------------------
 -- Export / import window
@@ -455,7 +440,8 @@ local function BuildExport()
         end
     end
     add(HemophileShared)
-    add(HemophileDB) -- yours wins
+    add(HemophileDB)
+    add(HemophileAuto) -- automatic observations take precedence
     local ids = {}
     for id in pairs(merged) do ids[#ids + 1] = id end
     table.sort(ids)
@@ -564,7 +550,7 @@ local function BuildOptions()
 
     local resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     resetBtn:SetSize(170, 22)
-    resetBtn:SetPoint("TOPLEFT", 20, -260)
+    resetBtn:SetPoint("TOP", 0, -260)
     resetBtn:SetText("Reset to target frame")
     resetBtn:SetScript("OnClick", function()
         Opt().pos = nil
@@ -773,12 +759,12 @@ container:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
             print(("Hemophile debug: action=%s flag=%s amount=%s school=%s"):format(
                 tostring(a2), tostring(a3), tostring(a4), tostring(a5)))
         end
-        pcall(OnPoisonCombat, a2, a5)
         pcall(OnTargetCombat, a2)
     elseif event == "ADDON_LOADED" then
         if a1 == "Hemophile" then
             HemophileDB = HemophileDB or {}
             HemophileShared = HemophileShared or {}
+            HemophileAuto = HemophileAuto or {}
             if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
                 C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
             end
@@ -827,7 +813,8 @@ SlashCmdList["HEMOPHILE"] = function(msg)
     if cmd == "forget" then
         HemophileDB[id] = nil
         HemophileShared[id] = nil
-        print("Hemophile: cleared saved data for " .. (UnitName("target") or id))
+        HemophileAuto[id] = nil
+        print("Hemophile: cleared saved, shared, and auto-detected data for " .. (UnitName("target") or id))
         Refresh()
         return
     end
