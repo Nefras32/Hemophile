@@ -1,7 +1,6 @@
 ## Interface: 16001
 ## Title: Hemophile
 ## Notes: Tracks bleed and poison immunity from attacks, with live sharing between addon users
-## Author: Milktrader
 ## Version: 0.2
 ## SavedVariables: HemophileDB, HemophileShared, HemophileAuto
 Hemophile.lua
