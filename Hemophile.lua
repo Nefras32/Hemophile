@@ -1,6 +1,6 @@
 local TRACKED = {
-    { key = "bleed",  name = "Bleed",        texture = "Interface\\Icons\\Ability_Rogue_Rupture" },
-    { key = "poison", name = "Deadly Poison", texture = "Interface\\Icons\\Ability_Rogue_DualWeild" },
+    { key = "bleed",  name = "Bleed indicator",  texture = "Interface\\Icons\\Ability_Rogue_Rupture" },
+    { key = "poison", name = "Poison indicator", texture = "Interface\\Icons\\Ability_Poisons" },
 }
 local KEYS = { bleed = true, poison = true }
 
@@ -23,16 +23,16 @@ HemophileStatic = {}
 local unlocked = false -- icons are draggable while true (not saved between sessions)
 
 ---------------------------------------------------------------------
--- Options (stored inside HemophileDB.options)
+-- Options are stored per character in HemophileCharacterDB.options.
 ---------------------------------------------------------------------
 local FALLBACK_OPTIONS = { size = DEFAULT_SIZE, hidden = {}, blockReceive = true }
 
 local function Opt()
-    if not HemophileDB then return FALLBACK_OPTIONS end
-    local o = HemophileDB.options
+    if not HemophileCharacterDB then return FALLBACK_OPTIONS end
+    local o = HemophileCharacterDB.options
     if not o then
         o = {}
-        HemophileDB.options = o
+        HemophileCharacterDB.options = o
     end
     if o.size == nil then o.size = DEFAULT_SIZE end
     if o.hidden == nil then o.hidden = {} end
@@ -92,29 +92,31 @@ ParseLines(HemophileStaticText or "", HemophileStatic)
 -- Returns immune (bool), source (string)
 local function CheckImmunity(key, unit)
     local id = NpcIdFromGUID(UnitGUID(unit))
+    local ctype = UnitCreatureType(unit)
+    local baseline = ctype and IMMUNE_TYPES[key] and IMMUNE_TYPES[key][ctype]
+        and ("; baseline: immune for " .. ctype .. " type") or ""
     if id then
         local entry = HemophileAuto and HemophileAuto[id]
         if entry and entry[key] ~= nil then
-            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (auto-detected)"
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (auto-detected)" .. baseline, "auto"
         end
         entry = HemophileDB and HemophileDB[id]
         if entry and entry[key] ~= nil then
-            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (marked by you)"
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (marked by you)" .. baseline
         end
         entry = HemophileShared and HemophileShared[id]
         if entry and entry[key] ~= nil then
-            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (shared/imported)"
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (shared/imported)" .. baseline
         end
         entry = HemophileStatic[id]
         if entry and entry[key] ~= nil then
-            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (addon database)"
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (addon database)" .. baseline
         end
         entry = OVERRIDES[id]
         if entry and entry[key] ~= nil then
-            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (override)"
+            return entry[key], (entry[key] and "Immune" or "Not immune") .. " (override)" .. baseline
         end
     end
-    local ctype = UnitCreatureType(unit)
     if ctype and IMMUNE_TYPES[key] and IMMUNE_TYPES[key][ctype] then
         return true, "Immune (" .. ctype .. " type guess, unconfirmed)"
     end
@@ -139,7 +141,8 @@ container.bg:SetPoint("BOTTOMRIGHT", 3, -3)
 container.bg:SetColorTexture(0, 1, 0, 0.25)
 container.bg:Hide()
 
-local Refresh, Learn -- forward declarations
+local Refresh, Learn, ClearAutoLearnedPoison -- forward declarations
+local latest
 
 local function SavePosition()
     local left, bottom = container:GetLeft(), container:GetBottom()
@@ -162,8 +165,10 @@ local function ShowTooltip(b)
     GameTooltip:AddLine(b.status or "", 1, 1, 1)
     if unlocked then
         GameTooltip:AddLine("Drag to move the icons", 0.6, 1, 0.6)
+    elseif b.info.key == "poison" and b.origin == "auto" and b.status:match("^Not immune") then
+        GameTooltip:AddLine("Click to clear this result and test poisonability again", 0.6, 0.6, 0.6)
     else
-        GameTooltip:AddLine("Click to flip: mark immune / can bleed", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine("Click to flip: mark immune / not immune", 0.6, 0.6, 0.6)
     end
     GameTooltip:Show()
 end
@@ -177,7 +182,16 @@ for i, info in ipairs(TRACKED) do
 
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetAllPoints()
-    b.icon:SetTexture(info.texture)
+    local iconTexture = info.texture
+    if info.key == "poison" then
+        local _, class = UnitClass("player")
+        if class == "HUNTER" then
+            iconTexture = "Interface\\Icons\\Ability_Hunter_Quickshot"
+        elseif class == "ROGUE" then
+            iconTexture = "Interface\\Icons\\Ability_Rogue_DualWeild"
+        end
+    end
+    b.icon:SetTexture(iconTexture)
 
     b.cross = b:CreateTexture(nil, "OVERLAY")
     b.cross:SetAllPoints()
@@ -202,8 +216,12 @@ for i, info in ipairs(TRACKED) do
         if unlocked or button ~= "LeftButton" then return end
         if not IsHostileNpc("target") then return end
         local guid = UnitGUID("target")
-        local current = CheckImmunity(self.info.key, "target")
-        Learn(guid, UnitName("target"), self.info.key, not current)
+        local current, _, origin = CheckImmunity(self.info.key, "target")
+        if self.info.key == "poison" and not current and origin == "auto" then
+            ClearAutoLearnedPoison(NpcIdFromGUID(guid), guid, UnitName("target"))
+        else
+            Learn(guid, UnitName("target"), self.info.key, not current)
+        end
         if GameTooltip:IsOwned(self) then ShowTooltip(self) end
     end)
 
@@ -237,8 +255,9 @@ function Refresh()
     container:Show()
     for _, info in ipairs(TRACKED) do
         local b = info.button
-        local immune, source = CheckImmunity(info.key, "target")
+        local immune, source, origin = CheckImmunity(info.key, "target")
         b.status = source
+        b.origin = origin
         if immune then
             b.icon:SetDesaturated(true)
             b.icon:SetVertexColor(1, 0.3, 0.3)
@@ -308,6 +327,19 @@ function Learn(guid, mobName, key, immune, silent, automatic)
     if guid == UnitGUID("target") then Refresh() end
 end
 
+function ClearAutoLearnedPoison(id, guid, mobName)
+    local entry = id and HemophileAuto and HemophileAuto[id]
+    if not entry or entry.poison ~= false then return end
+
+    entry.poison = nil
+    if entry.bleed == nil then HemophileAuto[id] = nil end
+    if latest and latest.guid == guid and latest.key == "poison" then latest = nil end
+
+    print(("|cff00ff00Hemophile:|r cleared the auto-detected poisonability for %s; apply poison again to retest."):format(
+        mobName or ("NPC " .. id)))
+    Refresh()
+end
+
 
 -- Auto-learn immunity from casts that test bleed or poison effects.
 
@@ -340,7 +372,6 @@ TrackSpells("bleed", {
 })
 
 local WINDOW = 0.5 -- seconds after a cast in which an IMMUNE result counts
-local latest       -- most recent tracked cast
 
 -- Called when you successfully cast a spell
 local function OnTrackedCast(spellID)
@@ -765,6 +796,11 @@ container:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
             HemophileDB = HemophileDB or {}
             HemophileShared = HemophileShared or {}
             HemophileAuto = HemophileAuto or {}
+            HemophileCharacterDB = HemophileCharacterDB or {}
+            if not HemophileCharacterDB.options and HemophileDB.options then
+                HemophileCharacterDB.options = HemophileDB.options
+                HemophileDB.options = nil
+            end
             if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
                 C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
             end

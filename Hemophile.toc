@@ -3,4 +3,5 @@
 ## Notes: Tracks bleed and poison immunity from attacks, with live sharing between addon users
 ## Version: 0.2
 ## SavedVariables: HemophileDB, HemophileShared, HemophileAuto
+## SavedVariablesPerCharacter: HemophileCharacterDB
 Hemophile.lua
