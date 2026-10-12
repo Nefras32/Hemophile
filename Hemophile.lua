@@ -37,7 +37,6 @@ local function Opt()
     if o.size == nil then o.size = DEFAULT_SIZE end
     if o.hidden == nil then o.hidden = {} end
     if o.blockReceive == nil then o.blockReceive = true end -- blocked by default
-    if o.autoLearn == nil then o.autoLearn = true end       -- learn from Rupture/Garrote casts
     if o.minimapAngle == nil then o.minimapAngle = 200 end  -- minimap button position (degrees)
     return o
 end
@@ -383,7 +382,6 @@ local WINDOW = 0.5 -- seconds after a cast in which an IMMUNE result counts
 
 -- Called when you successfully cast a spell
 local function OnTrackedCast(spellID)
-    if not Opt().autoLearn then return end
     local key = SPELL_KEYS[spellID]
     if not key then return end
     if not IsHostileNpc("target") then return end
@@ -401,7 +399,13 @@ local function OnTrackedCast(spellID)
 end
 
 -- Called for UNIT_COMBAT events on your target
-local function OnTargetCombat(action)
+local function OnTargetCombat(action, school)
+    if action == "WOUND" and school == 8 then
+        if IsHostileNpc("target") then
+            Learn(UnitGUID("target"), UnitName("target"), "poison", false, true, true)
+        end
+    end
+
     local p = latest
     if not p or p.immune then return end
     if GetTime() - p.time > WINDOW then return end
@@ -597,44 +601,34 @@ local function BuildOptions()
         print("Hemophile: icon position reset.")
     end)
 
-    -- Automatic learning
-    local learnLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    learnLabel:SetPoint("TOPLEFT", 18, -296)
-    learnLabel:SetText("Learning")
-
-    f.autoCheck = MakeCheckbox(f, "Auto-learn immunities", 14, -312, function(checked)
-        Opt().autoLearn = checked
-        print("Hemophile: auto-learning is " .. (checked and "ON" or "OFF"))
-    end)
-
     -- Block incoming live sharing
     local shareLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    shareLabel:SetPoint("TOPLEFT", 18, -346)
+    shareLabel:SetPoint("TOPLEFT", 18, -296)
     shareLabel:SetText("Live sharing")
 
-    f.blockCheck = MakeCheckbox(f, "Block incoming shared data", 14, -362, function(checked)
+    f.blockCheck = MakeCheckbox(f, "Block incoming shared data", 14, -312, function(checked)
         Opt().blockReceive = checked
         print("Hemophile: incoming live sharing is " .. (checked and "BLOCKED" or "allowed"))
     end)
 
     -- Minimap button
     local mmLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    mmLabel:SetPoint("TOPLEFT", 18, -396)
+    mmLabel:SetPoint("TOPLEFT", 18, -346)
     mmLabel:SetText("Minimap")
 
-    f.minimapCheck = MakeCheckbox(f, "Show minimap button", 14, -412, function(checked)
+    f.minimapCheck = MakeCheckbox(f, "Show minimap button", 14, -362, function(checked)
         Opt().minimapHide = (not checked) or nil
         UpdateMinimapButton()
     end)
 
     -- Import / export
     local dataLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    dataLabel:SetPoint("TOPLEFT", 18, -446)
+    dataLabel:SetPoint("TOPLEFT", 18, -396)
     dataLabel:SetText("Data")
 
     local exportBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     exportBtn:SetSize(120, 22)
-    exportBtn:SetPoint("TOPLEFT", 20, -464)
+    exportBtn:SetPoint("TOPLEFT", 20, -414)
     exportBtn:SetText("Export")
     exportBtn:SetScript("OnClick", OpenExport)
 
@@ -674,7 +668,6 @@ local function ShowOptions()
         optionsFrame.iconChecks[info.key]:SetChecked(not o.hidden[info.key])
     end
     optionsFrame.unlockCheck:SetChecked(unlocked)
-    optionsFrame.autoCheck:SetChecked(o.autoLearn)
     optionsFrame.blockCheck:SetChecked(o.blockReceive)
     optionsFrame.minimapCheck:SetChecked(not o.minimapHide)
     optionsFrame:Show()
@@ -798,7 +791,7 @@ container:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
             print(("Hemophile debug: action=%s flag=%s amount=%s school=%s"):format(
                 tostring(a2), tostring(a3), tostring(a4), tostring(a5)))
         end
-        pcall(OnTargetCombat, a2)
+        pcall(OnTargetCombat, a2, a5)
     elseif event == "ADDON_LOADED" then
         if a1 == "Hemophile" then
             HemophileDB = HemophileDB or {}
