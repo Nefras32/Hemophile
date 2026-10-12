@@ -362,9 +362,11 @@ TrackSpells("bleed", {
     703, 8631, 8632, 8633, 11289, 11290,  -- Garrote
 })
 
--- Hunter stings count as evidence for the shared poison flag.
+-- Poisonability is inferred only from known poison effects. Generic WOUND events
+-- are not sufficient because they do not identify the spell that caused them.
 TrackSpells("poison", {
-    2818, 2819, 11353, 11354, 25349, 26968, 27187, 57970, -- Deadly Poison ranks
+    2818, 2819, 11353, 11354, 25349, 26968, 27187, 57970, -- Rogue Deadly Poison ranks
+    8680, 8685, 8686, 8688, 11338, 11339, 11340, 26890, 57965, 57964, -- Rogue Instant Poison ranks
     1978, 13549, 13550, 13551, 13552, 13553, 13554, 13555, 25295, -- Serpent Sting
     3034, 14279, 14280,                                          -- Viper Sting
     3043, 14275, 14276, 14277,                                   -- Scorpid Sting
@@ -399,13 +401,7 @@ local function OnTrackedCast(spellID)
 end
 
 -- Called for UNIT_COMBAT events on your target
-local function OnTargetCombat(action, school)
-    if action == "WOUND" and school == 8 then
-        if IsHostileNpc("target") then
-            Learn(UnitGUID("target"), UnitName("target"), "poison", false, true, true)
-        end
-    end
-
+local function OnTargetCombat(action)
     local p = latest
     if not p or p.immune then return end
     if GetTime() - p.time > WINDOW then return end
@@ -791,7 +787,7 @@ container:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
             print(("Hemophile debug: action=%s flag=%s amount=%s school=%s"):format(
                 tostring(a2), tostring(a3), tostring(a4), tostring(a5)))
         end
-        pcall(OnTargetCombat, a2, a5)
+        pcall(OnTargetCombat, a2)
     elseif event == "ADDON_LOADED" then
         if a1 == "Hemophile" then
             HemophileDB = HemophileDB or {}
