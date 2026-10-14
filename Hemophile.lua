@@ -75,9 +75,15 @@ local function UnitMatchesMob(unit, guid, dataKey)
     return dataKey ~= nil and DataKeyFromUnit(unit) == dataKey
 end
 
+local function IsPvP()
+    local inInstance, instanceType = IsInInstance()
+    return inInstance and instanceType == "pvp"
+end
+
 -- Attackable NPCs only: no players, no pets, no friendly NPCs
 local function IsHostileNpc(unit)
-    return UnitExists(unit)
+    return not IsPvP()
+        and UnitExists(unit)
         and UnitCanAttack("player", unit)
         and not UnitPlayerControlled(unit)
 end
@@ -276,6 +282,11 @@ local function ApplyLayout()
 end
 
 function Refresh()
+    if IsPvP() then
+        latest = nil
+        container:Hide()
+        return
+    end
     local hasTarget = IsHostileNpc("target") and not UnitIsDead("target")
     if not hasTarget and not unlocked then
         container:Hide()
@@ -328,7 +339,7 @@ end
 -- Live sharing (party / raid / guild)
 
 local function Broadcast(id, key, immune, name)
-    if not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    if IsPvP() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
     local msg = ("%d;%s;%d;%s"):format(id, key, immune and 1 or 0, (name or ""):sub(1, 100))
     if IsInRaid() then
         C_ChatInfo.SendAddonMessage(PREFIX, msg, "RAID")
@@ -341,6 +352,7 @@ local function Broadcast(id, key, immune, name)
 end
 
 local function ReceiveShared(text, sender)
+    if IsPvP() then return end
     if Opt().blockReceive then return end -- incoming sharing blocked
     if sender and sender:match("^[^-]+") == UnitName("player") then return end
     local id, key, val, name = text:match("^(%d+);(%a+);([01]);(.*)$")
@@ -357,6 +369,7 @@ end
 -- Saving what you mark
 
 function Learn(guid, mobName, key, immune, silent, automatic)
+    if IsPvP() then return end
     local dataKey = NpcIdFromGUID(guid)
     if not dataKey then return end
     if not automatic then
@@ -824,6 +837,11 @@ end
 -- Events (no combat log, no aura reads: this client blocks both)
 ---------------------------------------------------------------------
 container:RegisterEvent("ADDON_LOADED")
+container:RegisterEvent("PLAYER_ENTERING_WORLD")
+container:RegisterEvent("PLAYER_FLAGS_CHANGED")
+container:RegisterEvent("ZONE_CHANGED")
+container:RegisterEvent("ZONE_CHANGED_INDOORS")
+container:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 container:RegisterEvent("PLAYER_TARGET_CHANGED")
 container:RegisterEvent("UNIT_CLASSIFICATION_CHANGED")
 container:RegisterEvent("CHAT_MSG_ADDON")

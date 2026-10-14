@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Hemophile
 ## Notes: Tracks bleed and poison immunity from attacks, with live sharing between addon users
-## Version: 0.3.5
+## Version: 0.3.6
 ## SavedVariables: HemophileDB, HemophileShared, HemophileAuto
 ## SavedVariablesPerCharacter: HemophileCharacterDB
 ## X-Curse-Project-ID:1740705
