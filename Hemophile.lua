@@ -117,7 +117,7 @@ local function CheckImmunity(key, unit)
     local dataKey = DataKeyFromUnit(unit)
     local ctype = CreatureTypeForUnit(unit)
     local baseline = ctype and IMMUNE_TYPES[key] and IMMUNE_TYPES[key][ctype]
-        and ("; baseline: immune for " .. ctype .. " type") or ""
+        and ("; creature-type guess: immune for " .. ctype .. " (this mob's data takes precedence)") or ""
     if dataKey then
         local entry = HemophileAuto and HemophileAuto[dataKey]
         if entry and entry[key] ~= nil then
@@ -889,7 +889,7 @@ SlashCmdList["HEMOPHILE"] = function(msg)
     end
 
     if not IsHostileNpc("target") then
-        print("Hemophile: /hemophile options | export | import | immune | hittable | forget (the last three need a mob targeted)")
+        print("Hemophile: /hemophile options | debug | export | import | immune | hittable | forget (the last three need a mob targeted)")
         return
     end
     local guid = UnitGUID("target")
@@ -909,7 +909,7 @@ SlashCmdList["HEMOPHILE"] = function(msg)
     end
 
     if cmd ~= "immune" and cmd ~= "hittable" then
-        print("Hemophile: /hemophile options, immune|hittable [bleed|poison|all], forget, export, import")
+        print("Hemophile: /hemophile options | debug | export | import | immune|hittable [bleed|poison|all] | forget")
         return
     end
 
